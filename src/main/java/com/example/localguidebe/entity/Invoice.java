@@ -1,5 +1,6 @@
 package com.example.localguidebe.entity;
 
+import com.example.localguidebe.enums.InvoiceStatus;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -29,6 +30,21 @@ public class Invoice {
 
   @Column(name = "create_at")
   private LocalDateTime createAt;
+
+  @Column() private String fullName;
+
+  @Column() private String phone;
+
+  @Column() private String email;
+
+  @Column(name = "vnp_TxnRef")
+  private String vnpTxnRef;
+
+  @Column(name = "status")
+  @Enumerated(EnumType.STRING)
+  private InvoiceStatus status;
+
+  @Column() private Double refundVndPrice;
 
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "traveler_id")

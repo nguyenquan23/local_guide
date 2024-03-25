@@ -78,6 +78,20 @@ public class User {
   @OneToMany(fetch = FetchType.LAZY, cascade = CascadeType.ALL, mappedBy = "guide")
   private List<TravelerRequest> travelerRequestsOfGuide = new ArrayList<>();
 
+  @OneToMany(fetch = FetchType.LAZY, cascade = CascadeType.ALL, mappedBy = "sender")
+  List<Notification> notificationSender = new ArrayList<>();
+
+  @OneToMany(fetch = FetchType.LAZY, cascade = CascadeType.ALL, mappedBy = "receiver")
+  List<Notification> notificationReceiver = new ArrayList<>();
+
+
+  @Column(columnDefinition = "boolean default false")
+  private boolean isDeleted;
+
+  @ManyToMany(fetch = FetchType.LAZY, cascade = CascadeType.ALL, mappedBy = "users")
+  private List<Tour> wishListTour = new ArrayList<>();
+
+
   @Override
   public String toString() {
     return "{"

@@ -3,14 +3,15 @@ package com.example.localguidebe.controller;
 import com.example.localguidebe.converter.TourToTourDtoConverter;
 import com.example.localguidebe.converter.TourToUpdateTourResponseDtoConverter;
 import com.example.localguidebe.dto.CategoryDTO;
+import com.example.localguidebe.dto.TourDTO;
 import com.example.localguidebe.dto.requestdto.TourRequestDTO;
 import com.example.localguidebe.dto.requestdto.UpdateTourRequestDTO;
 import com.example.localguidebe.entity.Tour;
 import com.example.localguidebe.entity.User;
+import com.example.localguidebe.enums.NotificationTypeEnum;
 import com.example.localguidebe.security.service.CustomUserDetails;
-import com.example.localguidebe.service.CategoryService;
-import com.example.localguidebe.service.TourService;
-import com.example.localguidebe.service.UserService;
+import com.example.localguidebe.service.*;
+import com.example.localguidebe.system.NotificationMessage;
 import com.example.localguidebe.system.Result;
 import com.example.localguidebe.utils.AddressUtils;
 import com.example.localguidebe.utils.AuthUtils;
@@ -32,12 +33,19 @@ public class TourController {
   private TourToTourDtoConverter tourToTourDtoConverter;
   private final TourToUpdateTourResponseDtoConverter tourToUpdateTourResponseDtoConverter;
   private final UserService userService;
+  private final TravelerRequestService travelerRequestService;
+
+  private final NotificationService notificationService;
 
   public TourController(
       TourToUpdateTourResponseDtoConverter tourToUpdateTourResponseDtoConverter,
-      UserService userService) {
+      UserService userService,
+      TravelerRequestService travelerRequestService,
+      NotificationService notificationService) {
     this.tourToUpdateTourResponseDtoConverter = tourToUpdateTourResponseDtoConverter;
     this.userService = userService;
+    this.travelerRequestService = travelerRequestService;
+    this.notificationService = notificationService;
   }
 
   @Autowired
@@ -237,24 +245,95 @@ public class TourController {
         HttpStatus.OK);
   }
 
-  @GetMapping("/filter/{tourId}")
-  public ResponseEntity<Result> getTourByFilter(
-      @PathVariable Long tourId,
-      @RequestParam(required = false, defaultValue = "") List<Integer> ratings,
-      @RequestParam(required = false, defaultValue = "Most recent") String sortBy) {
-    try {
-      return new ResponseEntity<>(
-          new Result(
-              true,
-              HttpStatus.OK.value(),
-              "filter the comment list for tour successfully",
-              tourService.filterReviewForTour(ratings, tourId, sortBy)),
-          HttpStatus.OK);
-    } catch (Exception e) {
-      return new ResponseEntity<>(
-          new Result(
-              false, HttpStatus.CONFLICT.value(), "filter the failure comment list for tour", null),
-          HttpStatus.CONFLICT);
-    }
+  @PostMapping("/{requestId}")
+  public ResponseEntity<Result> addTourByTravelerRequest(
+      Authentication authentication,
+      @RequestBody TourRequestDTO tourRequestDTO,
+      @PathVariable("requestId") Long requestId) {
+
+    return AuthUtils.checkAuthentication(
+        authentication,
+        () -> {
+          try {
+            TourDTO tourDTO =
+                tourToTourDtoConverter.convert(
+                    tourService.saveTour(
+                        tourRequestDTO,
+                        ((CustomUserDetails) authentication.getPrincipal()).getEmail()));
+            if (tourDTO != null) {
+              travelerRequestService.updateStatusAndTourForTravelerRequest(
+                  requestId, tourDTO.getId());
+            }
+            return new ResponseEntity<>(
+                new Result(
+                    true,
+                    HttpStatus.OK.value(),
+                    "tour added for traveler request successfully",
+                    tourDTO),
+                HttpStatus.OK);
+          } catch (Exception e) {
+            return new ResponseEntity<>(
+                new Result(
+                    false,
+                    HttpStatus.CONFLICT.value(),
+                    "Adding tour for traveler request failed",
+                    null),
+                HttpStatus.CONFLICT);
+          }
+        });
+  }
+
+  @PutMapping("/accept/{tourId}")
+  public ResponseEntity<Result> acceptTour(
+      Authentication authentication, @PathVariable("tourId") Long tourId) {
+    return AuthUtils.checkAuthentication(
+        authentication,
+        () -> {
+          try {
+            TourDTO tourDTO = tourService.acceptTour(tourId);
+            if (tourDTO != null) {
+              notificationService.addNotification(
+                  tourDTO.getGuide().id(),
+                  null,
+                  tourId,
+                  NotificationTypeEnum.ACCEPTED_TOUR,
+                  NotificationMessage.ACCEPTED_TOUR);
+            }
+            return new ResponseEntity<>(
+                new Result(false, HttpStatus.OK.value(), "accepted for tour successfully", tourDTO),
+                HttpStatus.OK);
+          } catch (Exception e) {
+            return new ResponseEntity<>(
+                new Result(false, HttpStatus.CONFLICT.value(), "accepted tour failure", null),
+                HttpStatus.CONFLICT);
+          }
+        });
+  }
+
+  @PutMapping("/deny/{tourId}")
+  public ResponseEntity<Result> denyTour(
+      Authentication authentication, @PathVariable("tourId") Long tourId) {
+    return AuthUtils.checkAuthentication(
+        authentication,
+        () -> {
+          try {
+            TourDTO tourDTO = tourService.denyTour(tourId);
+            if (tourDTO != null) {
+              notificationService.addNotification(
+                  tourDTO.getGuide().id(),
+                  null,
+                  tourId,
+                  NotificationTypeEnum.DENY_TOUR,
+                  NotificationMessage.DENY_TOUR);
+            }
+            return new ResponseEntity<>(
+                new Result(false, HttpStatus.OK.value(), "deny tour successfully", tourDTO),
+                HttpStatus.OK);
+          } catch (Exception e) {
+            return new ResponseEntity<>(
+                new Result(false, HttpStatus.CONFLICT.value(), "deny tour failure", null),
+                HttpStatus.CONFLICT);
+          }
+        });
   }
 }

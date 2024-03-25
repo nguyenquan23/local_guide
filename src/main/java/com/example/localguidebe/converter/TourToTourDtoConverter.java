@@ -1,9 +1,11 @@
 package com.example.localguidebe.converter;
 
+import com.example.localguidebe.dto.LocationDTO;
 import com.example.localguidebe.dto.TourDTO;
 import com.example.localguidebe.entity.Tour;
 import com.example.localguidebe.enums.AssociateName;
 import com.example.localguidebe.service.ImageService;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -17,6 +19,7 @@ public class TourToTourDtoConverter {
   private final ImageService imageService;
   private final LocationToLocationDtoConverter locationToLocationDtoConverter;
   private final ReviewToReviewDtoConverter reviewToReviewDtoConverter;
+  private final TourStartTimeToTourStartTimeDtoConverter tourStartTimeToTourStartTimeDtoConverter;
 
   @Autowired
   public TourToTourDtoConverter(
@@ -25,13 +28,15 @@ public class TourToTourDtoConverter {
       CategoryToCategoryDtoConverter categoryToCategoryDtoConverter,
       ImageService imageService,
       LocationToLocationDtoConverter locationToLocationDtoConverter,
-      ReviewToReviewDtoConverter reviewToReviewDtoConverter) {
+      ReviewToReviewDtoConverter reviewToReviewDtoConverter,
+      TourStartTimeToTourStartTimeDtoConverter tourStartTimeToTourStartTimeDtoConverter) {
     this.imageToImageDtoConverter = imageToImageDtoConverter;
     this.userToUserDtoConverter = userToUserDtoConverter;
     this.categoryToCategoryDtoConverter = categoryToCategoryDtoConverter;
     this.imageService = imageService;
     this.locationToLocationDtoConverter = locationToLocationDtoConverter;
     this.reviewToReviewDtoConverter = reviewToReviewDtoConverter;
+    this.tourStartTimeToTourStartTimeDtoConverter = tourStartTimeToTourStartTimeDtoConverter;
   }
 
   public TourDTO convert(Tour tour) {
@@ -52,6 +57,10 @@ public class TourToTourDtoConverter {
         tour.getIsDeleted(),
         tour.getAddress(),
         tour.getGuide() != null ? userToUserDtoConverter.convert(tour.getGuide()) : null,
+        tour.getStatus(),
+        tour.getTourStartTimes().stream()
+            .map(tourStartTime -> tourStartTime.getStartTime().toString())
+            .toList(),
         tour.getCategories() != null
             ? tour.getCategories().stream()
                 .map(categoryToCategoryDtoConverter::convertCategory)
@@ -63,6 +72,7 @@ public class TourToTourDtoConverter {
         imageService.getImageByAssociateIddAndAssociateName(tour.getId(), AssociateName.TOUR),
         tour.getLocations().stream()
             .map(locationToLocationDtoConverter::convert)
-            .collect(Collectors.toSet()));
+            .sorted(Comparator.comparing(LocationDTO::id))
+            .collect(Collectors.toList()));
   }
 }

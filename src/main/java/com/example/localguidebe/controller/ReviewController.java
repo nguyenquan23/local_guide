@@ -49,7 +49,7 @@ public class ReviewController {
             return ResponseEntity.status(HttpStatus.OK)
                 .body(
                     new Result(
-                        false, HttpStatus.OK.value(), "You can't not add review for this guide"));
+                        false, HttpStatus.OK.value(), "You can't add review for this guide"));
           }
           return ResponseEntity.status(HttpStatus.OK)
               .body(
@@ -78,6 +78,12 @@ public class ReviewController {
                     HttpStatus.CONFLICT.value(),
                     "You haven't booked a tour yet so you can't review it",
                     null),
+                HttpStatus.CONFLICT);
+          } else if (!tourService.checkExistingReviewsByTraveler(
+              ((CustomUserDetails) authentication.getPrincipal()).getId(), tourId)) {
+            return new ResponseEntity<>(
+                new Result(
+                    true, HttpStatus.CONFLICT.value(), "You have already rated this tour", null),
                 HttpStatus.CONFLICT);
           } else {
             try {
@@ -119,23 +125,30 @@ public class ReviewController {
     }
   }
 
-  @GetMapping("guide-reviews/{guideId}")
-  // TODO: Add param for filter by rating and sort
-  public ResponseEntity<Result> getReviewsForGuide(@PathVariable("guideId") Long guideId) {
-    List<Review> reviews = reviewService.getReviewsOfGuide(guideId);
-    if (reviews.isEmpty()) {
-      return ResponseEntity.status(HttpStatus.NO_CONTENT)
+  @GetMapping("guide-reviews/filter/{guideId}")
+  public ResponseEntity<Result> getReviewsForGuide(
+      @PathVariable("guideId") Long guideId,
+      @RequestParam(required = false, defaultValue = "") List<Integer> ratings,
+      @RequestParam(required = false, defaultValue = "Most recent") String sortBy) {
+    try {
+      List<Review> reviews = reviewService.getReviewsOfGuide(guideId, ratings, sortBy);
+      if (reviews.isEmpty()) {
+        return ResponseEntity.status(HttpStatus.OK)
+            .body(new Result(true, HttpStatus.OK.value(), "No review for this condition"));
+      }
+      return ResponseEntity.status(HttpStatus.OK)
           .body(
               new Result(
-                  true, HttpStatus.NO_CONTENT.value(), "This guide has not been reviewed yet."));
+                  true,
+                  HttpStatus.OK.value(),
+                  "Thank you for giving feedback.",
+                  reviews.stream().map(reviewToReviewDtoConverter::convert)));
+    } catch (Exception e) {
+      return new ResponseEntity<>(
+          new Result(
+              false, HttpStatus.CONFLICT.value(), "Get the failure comment list for guide", null),
+          HttpStatus.CONFLICT);
     }
-    return ResponseEntity.status(HttpStatus.OK)
-        .body(
-            new Result(
-                true,
-                HttpStatus.OK.value(),
-                "Thank you for giving feedback.",
-                reviews.stream().map(reviewToReviewDtoConverter::convert)));
   }
 
   @PutMapping("tour-reviews/{reviewId}")
@@ -249,5 +262,26 @@ public class ReviewController {
           return ResponseEntity.status(HttpStatus.OK)
               .body(new Result(true, HttpStatus.OK.value(), "Update review successful."));
         });
+  }
+
+  @GetMapping("/tour-reviews/filter/{tourId}")
+  public ResponseEntity<Result> getTourByFilter(
+      @PathVariable Long tourId,
+      @RequestParam(required = false, defaultValue = "") List<Integer> ratings,
+      @RequestParam(required = false, defaultValue = "Most recent") String sortBy) {
+    try {
+      return new ResponseEntity<>(
+          new Result(
+              true,
+              HttpStatus.OK.value(),
+              "filter the comment list for tour successfully",
+              tourService.filterReviewForTour(ratings, tourId, sortBy)),
+          HttpStatus.OK);
+    } catch (Exception e) {
+      return new ResponseEntity<>(
+          new Result(
+              false, HttpStatus.CONFLICT.value(), "filter the failure comment list for tour", null),
+          HttpStatus.CONFLICT);
+    }
   }
 }

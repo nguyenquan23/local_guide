@@ -13,9 +13,7 @@ import com.example.localguidebe.dto.responsedto.ReviewResponseDTO;
 import com.example.localguidebe.dto.responsedto.SearchSuggestionResponseDTO;
 import com.example.localguidebe.dto.responsedto.SearchTourDTO;
 import com.example.localguidebe.entity.*;
-import com.example.localguidebe.enums.AssociateName;
-import com.example.localguidebe.enums.BookingStatusEnum;
-import com.example.localguidebe.enums.FolderName;
+import com.example.localguidebe.enums.*;
 import com.example.localguidebe.repository.*;
 import com.example.localguidebe.repository.ImageRepository;
 import com.example.localguidebe.repository.TourRepository;
@@ -24,6 +22,7 @@ import com.example.localguidebe.service.CategoryService;
 import com.example.localguidebe.service.LocationService;
 import com.example.localguidebe.service.TourService;
 import com.example.localguidebe.service.TourStartTimeService;
+import com.example.localguidebe.system.NotificationMessage;
 import com.example.localguidebe.utils.AddressUtils;
 import com.example.localguidebe.utils.CloudinaryUtil;
 import com.google.gson.Gson;
@@ -62,6 +61,9 @@ public class TourServiceImpl implements TourService {
   private final BookingRepository bookingRepository;
   private final ReviewToReviewResponseDto reviewToReviewResponseDto;
   private final Gson gson = new Gson();
+  private final NotificationService notificationService;
+  private final CartRepository cartRepository;
+  private final ReviewRepository reviewRepository;
 
   @Autowired
   public TourServiceImpl(
@@ -76,7 +78,10 @@ public class TourServiceImpl implements TourService {
       BookingRepository bookingRepository,
       TourToTourDtoConverter tourToTourDtoConverter,
       GeoCodingService geoCodingService,
-      ReviewToReviewResponseDto reviewToReviewResponseDto) {
+      ReviewToReviewResponseDto reviewToReviewResponseDto,
+      NotificationService notificationService,
+      CartRepository cartRepository,
+      ReviewRepository reviewRepository) {
     this.tourStartTimeRepository = tourStartTimeRepository;
     this.toResultInSearchSuggestionDtoConverter = toResultInSearchSuggestionDtoConverter;
     this.geoCodingService = geoCodingService;
@@ -89,6 +94,9 @@ public class TourServiceImpl implements TourService {
     this.tourToTourDtoConverter = tourToTourDtoConverter;
     this.bookingRepository = bookingRepository;
     this.reviewToReviewResponseDto = reviewToReviewResponseDto;
+    this.notificationService = notificationService;
+    this.cartRepository = cartRepository;
+    this.reviewRepository = reviewRepository;
   }
 
   @Autowired
@@ -117,7 +125,7 @@ public class TourServiceImpl implements TourService {
             getStartTime ->
                 newTour
                     .getTourStartTimes()
-                    .add(TourStartTime.builder().startTime(getStartTime).build()));
+                    .add(TourStartTime.builder().startTime(getStartTime).tour(newTour).build()));
 
     if (tourRequestDTO.getLocations().size() != 0) {
       tourRequestDTO
@@ -164,6 +172,13 @@ public class TourServiceImpl implements TourService {
               imageTour.setAssociateName(AssociateName.TOUR);
               imageRepository.save(imageTour);
             });
+    assert guide != null;
+    notificationService.addNotification(
+        guide.getId(),
+        null,
+        tour.getId(),
+        NotificationTypeEnum.ADD_TOUR,
+        NotificationMessage.ADD_TOUR);
     return tourRepository.save(tour);
   }
 
@@ -218,15 +233,15 @@ public class TourServiceImpl implements TourService {
       List<Image> tourImages =
           imageRepository.getImageByAssociateIddAndAssociateName(
               updateTourRequestDTO.id(), AssociateName.TOUR);
-      int maxSize = Math.max(tourImages.size(), updateTourRequestDTO.image_ids().size());
+      int maxSize = Math.max(tourImages.size(), updateTourRequestDTO.images().size());
       for (int i = 0; i < maxSize; i++) {
-        if (i < updateTourRequestDTO.image_ids().size()
-            && updateTourRequestDTO.image_ids().get(i).startsWith("data:")) {
+        if (i < updateTourRequestDTO.images().size()
+            // If object is Base64 String
+            && !(updateTourRequestDTO.images().get(i) instanceof Image)) {
           Image imageTour = new Image();
+          String imageBase64 = (String) updateTourRequestDTO.images().get(i);
           try {
-            imageTour.setImageLink(
-                cloudinaryUtil.uploadFile(
-                    updateTourRequestDTO.image_ids().get(i), FolderName.tour));
+            imageTour.setImageLink(cloudinaryUtil.uploadFile(imageBase64, FolderName.tour));
           } catch (IOException e) {
             throw new RuntimeException(e);
           }
@@ -236,11 +251,14 @@ public class TourServiceImpl implements TourService {
           logger.info("added new image");
         }
 
-        if (i < tourImages.size()
-            && !updateTourRequestDTO.image_ids().contains(tourImages.get(i).getId().toString())) {
-          if (cloudinaryUtil.deleteFile(tourImages.get(i).getImageLink(), FolderName.tour)) {
-            imageRepository.deleteById(tourImages.get(i).getId());
-            logger.info("deleted image");
+        // If object is Image
+        if (i < tourImages.size() && updateTourRequestDTO.images().get(i) instanceof Image image) {
+          // If image is deleted
+          if (!updateTourRequestDTO.images().contains(image.getId().toString())) {
+            if (cloudinaryUtil.deleteFile(tourImages.get(i).getImageLink(), FolderName.tour)) {
+              imageRepository.deleteById(tourImages.get(i).getId());
+              logger.info("deleted image");
+            }
           }
         }
       }
@@ -359,6 +377,16 @@ public class TourServiceImpl implements TourService {
   }
 
   @Override
+  public boolean checkExistingReviewsByTraveler(Long travelerId, Long tourId) {
+    int SuccessBookingNumber = cartRepository.getSuccessBookingNumber(tourId, travelerId);
+    int ReviewNumber = reviewRepository.getReviewNumber(travelerId, tourId);
+    if (SuccessBookingNumber <= ReviewNumber) {
+      return false;
+    }
+    return true;
+  }
+
+  @Override
   public void updateRatingForTour(Tour tour) {
     tour.setOverallRating(
         tour.getReviews().stream()
@@ -373,24 +401,38 @@ public class TourServiceImpl implements TourService {
   @Override
   public List<String> getLocationName(List<LocationDTO> locationDTOS) {
     List<String> locationName = new ArrayList<>();
-    locationDTOS.stream()
-        .forEach(
-            location ->
-                locationName.add(
-                    gson.fromJson(
-                            geoCodingService.getAddress(location.latitude(), location.longitude()),
-                            InfoLocationDTO.class)
-                        .getName()));
+    locationDTOS.forEach(
+        location ->
+            locationName.add(
+                gson.fromJson(
+                        geoCodingService.getAddress(location.latitude(), location.longitude()),
+                        InfoLocationDTO.class)
+                    .getName()));
     return locationName;
   }
 
   @Override
-  public List<ReviewResponseDTO> filterReviewForTour(List<Integer> ratings, Long tourId,String sortBy) {
+  public List<ReviewResponseDTO> filterReviewForTour(
+      List<Integer> ratings, Long tourId, String sortBy) {
     if (ratings.size() == 0) {
       ratings = Arrays.asList(1, 2, 3, 4, 5);
     }
-    return tourRepository.filterReviewForTour(ratings, tourId,sortBy).stream()
+    return tourRepository.filterReviewForTour(ratings, tourId, sortBy).stream()
         .map(reviewToReviewResponseDto::convert)
         .collect(Collectors.toList());
+  }
+
+  @Override
+  public TourDTO acceptTour(Long tourId) {
+    Tour tour = tourRepository.findById(tourId).orElseThrow();
+    tour.setStatus(TourStatusEnum.ACCEPT);
+    return tourToTourDtoConverter.convert(tourRepository.save(tour));
+  }
+
+  @Override
+  public TourDTO denyTour(Long tourId) {
+    Tour tour = tourRepository.findById(tourId).orElseThrow();
+    tour.setStatus(TourStatusEnum.DENY);
+    return tourToTourDtoConverter.convert(tourRepository.save(tour));
   }
 }
