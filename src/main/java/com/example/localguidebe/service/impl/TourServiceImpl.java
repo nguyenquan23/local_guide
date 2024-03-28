@@ -15,13 +15,7 @@ import com.example.localguidebe.dto.responsedto.SearchTourDTO;
 import com.example.localguidebe.entity.*;
 import com.example.localguidebe.enums.*;
 import com.example.localguidebe.repository.*;
-import com.example.localguidebe.repository.ImageRepository;
-import com.example.localguidebe.repository.TourRepository;
 import com.example.localguidebe.service.*;
-import com.example.localguidebe.service.CategoryService;
-import com.example.localguidebe.service.LocationService;
-import com.example.localguidebe.service.TourService;
-import com.example.localguidebe.service.TourStartTimeService;
 import com.example.localguidebe.system.NotificationMessage;
 import com.example.localguidebe.utils.AddressUtils;
 import com.example.localguidebe.utils.CloudinaryUtil;
@@ -29,9 +23,6 @@ import com.google.gson.Gson;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.*;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,7 +136,9 @@ public class TourServiceImpl implements TourService {
                     .getLocations()
                     .add(
                         Location.builder()
-                            .address(infoLocationDTO.getDisplay_name())
+                            .address(
+                                AddressUtils.removeVietnameseAccents(
+                                    infoLocationDTO.getDisplay_name()))
                             .name(locationDTO.name())
                             .latitude(locationDTO.latitude())
                             .longitude(locationDTO.longitude())
@@ -454,5 +447,10 @@ public class TourServiceImpl implements TourService {
         .filter(tour -> TourStatusEnum.PENDING.equals(tour.getStatus()))
         .map(tourToTourDtoConverter::convert)
         .collect(Collectors.toList());
+  }
+
+  @Override
+  public Tour findTourById(Long id) {
+    return tourRepository.findById(id).orElse(null);
   }
 }
